@@ -1,20 +1,36 @@
 #include <stdio.h>
+#include <stdlib.h>
+#include <stdbool.h>
 #include <raylib.h>
 #include <raymath.h>
+#include <string.h>
+#include <unistd.h>
 
-#define WIDTH 1000
+#include "metadata_reader.h"
+
+#define WIDTH 1200
 #define HEIGHT 800
 #define FPS 60
 
 #define COLOR_WHITE (Color){ 255, 255, 255, 255 }
 #define COLOR_YELLOW (Color){ 253, 249, 0, 255 }
 
-#define PROGRESS_BAR_X 100
-#define PROGRESS_BAR_Y 700
 #define PROGRESS_BAR_WIDTH 800
 #define PROGRESS_BAR_HEIGHT 20
+#define PROGRESS_BAR_Y 700
+#define PROGRESS_BAR_X (WIDTH - PROGRESS_BAR_WIDTH) / 2.0
 
 Color headDotColor = { 255, 255, 255, 255 };
+TextLine lines[MAX_LINES];
+int g_lineCount = 0; // g for global
+
+struct Metadata {
+    const char* title;
+    const char* album;
+    const char* date;
+    const char* artist;
+
+};
 
 void getInforGuide(Music *music)
 {
@@ -49,11 +65,6 @@ void handleProgressBarClick(Music *music, Vector2 mousePosition)
         SeekMusicStream(*music, newTime);
         /* printf("%f ", newTime); */
     }
-}
-
-void drawTextMusicInfor(Music *music)
-{
-    DrawText(const char *text, int posX, int posY, int fontSize, Color color);
 }
 
 void drawProgressBar(Music *music) 
@@ -113,16 +124,113 @@ void toggleMusic(Music *music)
     }
 }
 
+void readMetadataFile(const char* outputFile)
+{
+    if (access(outputFile , F_OK) == -1) {
+        const char* errorMsg = "Cannot read metadata file";
+        int errorWidth = MeasureText(errorMsg, 20);
+        DrawText(errorMsg, (GetScreenWidth() - errorWidth) / 2 , 20, 20, RED);
+        return;
+    } 
+
+    FILE *file = fopen(outputFile, "r"); // Let's read this file
+                                         //
+    if (!file) {
+        const char* errorMsg = "Error opening metadata file";
+        int errorWidth = MeasureText(errorMsg, 20);
+        DrawText(errorMsg, (GetScreenWidth() - errorWidth) / 2 , 20, 20, RED);
+        return;
+    }
+
+    int i = 0;
+    while (i < MAX_LINES && fgets(lines[i].text, sizeof(lines[i].text), file)) {
+        size_t len = strlen(lines[i].text);
+        // If it is the end of the string
+        if (len > 0 && lines[i].text[len - 1] == '\n') {
+            lines[i].text[len - 1] = '\0'; // Terminate
+        }
+        lines[i].fontSize = 20;
+        lines[i].color = WHITE;
+        i ++;
+    }
+
+    calculateTextPositions(lines, i, GetScreenWidth(), GetScreenHeight());
+
+    fclose(file);
+}
+
+void calculateTextPositions(TextLine *lines, int lineCount, int screenWidth, int screenHeight)
+{
+    float totalHeight = lineCount * LINE_PADDING;
+    float startY = MARGIN_TOP;
+
+    if (totalHeight > (screenHeight - MARGIN_TOP - MARGIN_BOTTOM)) {
+        startY = screenHeight - MARGIN_TOP - (lineCount * LINE_PADDING);
+    }
+
+    for (int i = 0; i < lineCount; i++) {
+        int widthText = MeasureText(lines[i].text, 20);
+        lines[i].position.x = (screenWidth - widthText) / 2.0;
+        lines[i].position.y = startY + (i * LINE_PADDING);
+        if (strstr(lines[i].text, "title") != NULL) {
+            lines[i].color = GOLD;
+            lines[i].fontSize = 24;
+        }
+    }
+    g_lineCount = lineCount;
+}
+
+void drawMetadataText(TextLine *lines, int lineCount)
+{
+    for (int i = 0; i < lineCount; i++) {
+        DrawText(lines[i].text, lines[i].position.x, 
+                lines[i].position.y, 
+                lines[i].fontSize, lines[i].color);
+    }
+}
+
+int executeCommand(const char *inputFile, const char* outputFile)
+{
+    // 0 if the file exists, -1 if it is not
+    if (access(outputFile, F_OK) == 0) {
+        if (remove(outputFile) != 0) {
+            perror("Error removing existing output file");
+            return -1;
+        } else {
+            // Remove the file if it exists
+            printf("File deleted successfully.\n");
+        }
+    }
+
+    // If the file doesn't exist, execute the command below
+    char command[256];
+    snprintf(command, sizeof(command), "ffmpeg -i %s -f ffmetadata %s", inputFile, outputFile);
+
+    int result = system(command);
+    if (result == 0) {
+        printf("Exetracted metadata successfully");
+        return 0;
+    } else {
+        printf("Failed to exetracted metadata successfully");
+        return -1;
+    }
+}
+
 int main()
 {
     InitAudioDevice();
     InitWindow(WIDTH, HEIGHT, "Play with sound");
     SetTargetFPS(FPS);
 
-    Music music = LoadMusicStream("Dream-On.mp3");
+    Music music = LoadMusicStream("journey-dont-stop-believin-1981.mp3");
+    const char* fileName = GetFileName("/home/chinhcom/programming/c/journey-dont-stop-believin-1981.mp3");
+    const char* outputFile = "metadata.txt";
+
+    if (executeCommand(fileName, outputFile) == 0) {
+        readMetadataFile(outputFile);
+    }
 
     while (!WindowShouldClose()) {
-
         BeginDrawing();
         ClearBackground(BLACK);
 
@@ -134,6 +242,8 @@ int main()
             getInforGuide(&music);
             drawProgressBar(&music);
             handleProgressBarClick(&music, GetMousePosition());
+            drawMetadataText(lines, g_lineCount);
+            
         }
         EndDrawing();
     }
