@@ -5,6 +5,7 @@
 #include <raymath.h>
 #include <string.h>
 #include <unistd.h>
+#include <linux/limits.h>
 
 #include "metadata_reader.h"
 
@@ -63,7 +64,6 @@ void handleProgressBarClick(Music *music, Vector2 mousePosition)
         float clickPosition = (mousePosition.x - PROGRESS_BAR_X) / PROGRESS_BAR_WIDTH;
         float newTime = clickPosition * GetMusicTimeLength(*music);
         SeekMusicStream(*music, newTime);
-        /* printf("%f ", newTime); */
     }
 }
 
@@ -134,7 +134,6 @@ void readMetadataFile(const char* outputFile)
     } 
 
     FILE *file = fopen(outputFile, "r"); // Let's read this file
-                                         //
     if (!file) {
         const char* errorMsg = "Error opening metadata file";
         int errorWidth = MeasureText(errorMsg, 20);
@@ -204,6 +203,10 @@ int executeCommand(const char *inputFile, const char* outputFile)
 
     // If the file doesn't exist, execute the command below
     char command[256];
+
+    printf("Input file: %s\n", inputFile);
+    printf("Output file: %s\n", outputFile);
+
     snprintf(command, sizeof(command), "ffmpeg -i %s -f ffmetadata %s", inputFile, outputFile);
 
     int result = system(command);
@@ -216,17 +219,50 @@ int executeCommand(const char *inputFile, const char* outputFile)
     }
 }
 
+static void AudioProcessEffectLPF(void *buffer, unsigned int frames)
+{
+    static float low[2] = { 0.0f, 0.0f };
+    static const float cutoff = 70.0f / 44100.0f; // 70 Hz lowpass filter
+    const float k = cutoff / (cutoff + 0.1591549431f); // RC filter formula
+
+    // Converts the buffer data before using it
+    float *bufferData = (float *)buffer;
+    for (unsigned int i = 0; i < frames*2; i += 2)
+    {
+        const float l = bufferData[i];
+        const float r = bufferData[i + 1];
+
+        low[0] += k * (l - low[0]);
+        low[1] += k * (r - low[1]);
+        bufferData[i] = low[0];
+        bufferData[i + 1] = low[1];
+    }
+}
+
 int main()
 {
     InitAudioDevice();
     InitWindow(WIDTH, HEIGHT, "Play with sound");
     SetTargetFPS(FPS);
 
-    Music music = LoadMusicStream("journey-dont-stop-believin-1981.mp3");
-    const char* fileName = GetFileName("/home/chinhcom/programming/c/journey-dont-stop-believin-1981.mp3");
+    Music music = LoadMusicStream("resources/journey-dont-stop-believin-1981.mp3");
+
+    char cwd[PATH_MAX];
+
+    const char* fileName = GetFileName("/home/chinhcom/programming/c/resources/journey-dont-stop-believin-1981.mp3");
+
+    if (getcwd(cwd, sizeof(cwd)) != NULL) {
+        printf("The current path: %s\n", cwd);
+    } else {
+        printf("Cannot get the current path\n");
+    }
+
+    char* filePath = strcat(cwd, "/resources/");
+    strcat(filePath, fileName);
+
     const char* outputFile = "metadata.txt";
 
-    if (executeCommand(fileName, outputFile) == 0) {
+    if (executeCommand(filePath, outputFile) == 0) {
         readMetadataFile(outputFile);
     }
 
@@ -243,8 +279,12 @@ int main()
             drawProgressBar(&music);
             handleProgressBarClick(&music, GetMousePosition());
             drawMetadataText(lines, g_lineCount);
-            
         }
+
+        if (IsKeyPressed(KEY_F)) {
+            AttachAudioStreamProcessor(music.stream, AudioProcessEffectLPF);
+        }
+
         EndDrawing();
     }
     UnloadMusicStream(music);
