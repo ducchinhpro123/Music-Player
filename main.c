@@ -274,6 +274,7 @@ Color getRainbowColor()
         255.0f};
 }
 
+// I copy from tsoding
 void drawWaveform(Frame *frames, size_t count)
 {
     if (count == 0) return;
@@ -295,6 +296,7 @@ void drawWaveform(Frame *frames, size_t count)
     }
 }
 
+// I copy from tsoding
 void callback(void *bufferData, unsigned int frames)
 {
     size_t capacity = ARRAY_LEN(g_frames);
