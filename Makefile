@@ -1,9 +1,9 @@
 CC = gcc
 CFLAGS = -Wall -I/usr/local/include
-LDFLAGS = -L/home/chinhcom/kissfft -lkissfft-float -lraylib -lm
+LDFLAGS = -L/home/chinhcom/kissfft -lkissfft-float -lraylib -lm # You would modify this
 
 # Define the library path
-LIBRARY_PATH = /home/chinhcom/kissfft
+LIBRARY_PATH = /home/chinhcom/kissfft # You would modify this
 
 TARGET = main
 SOURCES = main.c
