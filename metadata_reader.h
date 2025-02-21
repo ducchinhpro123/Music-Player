@@ -6,7 +6,7 @@
 
 #define MAX_LINES 50
 #define LINE_PADDING 30
-#define MARGIN_TOP 40
+#define MARGIN_TOP 70
 #define MARGIN_BOTTOM 40
 
 typedef struct {
@@ -18,7 +18,7 @@ typedef struct {
 
 void readMetadataFile(const char* outputFile);
 void calculateTextPositions(TextLine* lines, int lineCount, int screenWidth, int screenHeight);
-void drawMetadataText(TextLine* lines, int lineCount);
+void drawMetadataText(Font font, TextLine* lines, int lineCount);
 
 
 #endif 

@@ -6,12 +6,22 @@
 #include <string.h>
 #include <unistd.h>
 #include <linux/limits.h>
+#include <stdint.h>
+#include <complex.h>
+#include <kissfft/kiss_fft.h>
 
 #include "metadata_reader.h"
 
 #define WIDTH 1200
 #define HEIGHT 800
 #define FPS 60
+#define FRAME_BUFFER 4024
+#define N (1<<13)
+
+#define FFT_SIZE 1024
+#define NUM_BARS 64
+
+#define ARRAY_LEN(x) sizeof(x) / sizeof(x[0])
 
 #define COLOR_WHITE (Color){ 255, 255, 255, 255 }
 #define COLOR_YELLOW (Color){ 253, 249, 0, 255 }
@@ -21,17 +31,27 @@
 #define PROGRESS_BAR_Y 700
 #define PROGRESS_BAR_X (WIDTH - PROGRESS_BAR_WIDTH) / 2.0
 
-Color headDotColor = { 255, 255, 255, 255 };
-TextLine lines[MAX_LINES];
-int g_lineCount = 0; // g for global
-
 struct Metadata {
     const char* title;
     const char* album;
     const char* date;
     const char* artist;
-
 };
+
+typedef struct {
+    float left;
+    float right;
+} Frame;
+
+Color headDotColor = { 255, 255, 255, 255 };
+TextLine lines[MAX_LINES];
+
+int g_lineCount = 0; 
+Frame g_frames[FRAME_BUFFER] = { 0 };
+size_t g_frames_count = 0;
+float global_time;
+float fft_in[FFT_SIZE];
+float fft_out[FFT_SIZE];
 
 void getInforGuide(Music *music)
 {
@@ -57,9 +77,27 @@ void toggleHeadDotColor()
     }
 }
 
+void handleSeekMusic(Music *music)
+{
+    if (IsKeyPressed(KEY_RIGHT)) {
+        float timePlayed = GetMusicTimePlayed(*music);
+        timePlayed += 5;
+        SeekMusicStream(*music, timePlayed);
+    }
+    if (IsKeyPressed(KEY_LEFT)) {
+        float timePlayed = GetMusicTimePlayed(*music);
+        timePlayed -= 5;
+        if (timePlayed <= 0) {
+            SeekMusicStream(*music, 0);
+        } else {
+            SeekMusicStream(*music, timePlayed);
+        }
+    }
+}
+
 void handleProgressBarClick(Music *music, Vector2 mousePosition)
 {
-    Rectangle rec = { PROGRESS_BAR_X, PROGRESS_BAR_Y, PROGRESS_BAR_WIDTH, PROGRESS_BAR_HEIGHT, LIGHTGRAY };
+    Rectangle rec = { PROGRESS_BAR_X, PROGRESS_BAR_Y, PROGRESS_BAR_WIDTH, PROGRESS_BAR_HEIGHT };
     if (CheckCollisionPointRec(mousePosition, rec)  && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
         float clickPosition = (mousePosition.x - PROGRESS_BAR_X) / PROGRESS_BAR_WIDTH;
         float newTime = clickPosition * GetMusicTimeLength(*music);
@@ -143,6 +181,10 @@ void readMetadataFile(const char* outputFile)
 
     int i = 0;
     while (i < MAX_LINES && fgets(lines[i].text, sizeof(lines[i].text), file)) {
+        if (strncmp(lines[i].text, ";FFMETADATA1", 12) == 0
+                || strncmp(lines[i].text, "comment=(myzuka)", 16) == 0) {
+            continue;
+        }
         size_t len = strlen(lines[i].text);
         // If it is the end of the string
         if (len > 0 && lines[i].text[len - 1] == '\n') {
@@ -173,18 +215,18 @@ void calculateTextPositions(TextLine *lines, int lineCount, int screenWidth, int
         lines[i].position.y = startY + (i * LINE_PADDING);
         if (strstr(lines[i].text, "title") != NULL) {
             lines[i].color = GOLD;
-            lines[i].fontSize = 24;
+            lines[i].fontSize = 30;
         }
     }
     g_lineCount = lineCount;
 }
 
-void drawMetadataText(TextLine *lines, int lineCount)
+void drawMetadataText(Font font, TextLine *lines, int lineCount)
 {
     for (int i = 0; i < lineCount; i++) {
-        DrawText(lines[i].text, lines[i].position.x, 
-                lines[i].position.y, 
-                lines[i].fontSize, lines[i].color);
+        DrawTextEx(font, lines[i].text, 
+                (Vector2) { lines[i].position.x, lines[i].position.y },
+                lines[i].fontSize, 2, lines[i].color);
     }
 }
 
@@ -211,31 +253,60 @@ int executeCommand(const char *inputFile, const char* outputFile)
 
     int result = system(command);
     if (result == 0) {
-        printf("Exetracted metadata successfully");
+        printf("Exetracted metadata successfully\n");
         return 0;
     } else {
-        printf("Failed to exetracted metadata successfully");
+        printf("Failed to exetracted metadata successfully\n");
         return -1;
     }
 }
 
-static void AudioProcessEffectLPF(void *buffer, unsigned int frames)
+Color getRainbowColor()
 {
-    static float low[2] = { 0.0f, 0.0f };
-    static const float cutoff = 70.0f / 44100.0f; // 70 Hz lowpass filter
-    const float k = cutoff / (cutoff + 0.1591549431f); // RC filter formula
+    const float r = sinf(global_time);
+    const float g = sinf(global_time + 0.33f * 2.0f * PI);
+    const float b = sinf(global_time + 0.66f * 2.0f * PI);
 
-    // Converts the buffer data before using it
-    float *bufferData = (float *)buffer;
-    for (unsigned int i = 0; i < frames*2; i += 2)
-    {
-        const float l = bufferData[i];
-        const float r = bufferData[i + 1];
+    return (Color){
+        (unsigned char)(255.0f * r * r), 
+        (unsigned char)(255.0f * g * g), 
+        (unsigned char)(255.0f * b * b), 
+        255.0f};
+}
 
-        low[0] += k * (l - low[0]);
-        low[1] += k * (r - low[1]);
-        bufferData[i] = low[0];
-        bufferData[i + 1] = low[1];
+void drawWaveform(Frame *frames, size_t count)
+{
+    if (count == 0) return;
+
+    int w = GetRenderWidth();
+    int h = GetRenderHeight();
+    float cellWidth = (float)w/count; // normalize this 
+
+    for (size_t i = 0; i < count; i++) {
+        float t = g_frames[i].right;
+        /* float l = g_frames[i].left; */
+        // Trying to visualize that sample
+        if (t > 0) {
+            /* DrawRectangle(int posX, int posY, int width, int height, Color color); */
+            DrawRectangle(i*cellWidth, h/2.0 - h/2.0*t, 1, h/2.0*t, getRainbowColor());
+        } else {
+            DrawRectangle(i*cellWidth, h/2            , 1, h/2.0*t, getRainbowColor());
+        }
+    }
+}
+
+void callback(void *bufferData, unsigned int frames)
+{
+    size_t capacity = ARRAY_LEN(g_frames);
+    if (frames <= capacity - g_frames_count) {
+        memcpy(g_frames + g_frames_count, bufferData, sizeof(Frame)*frames);
+        g_frames_count += frames;
+    } else if (frames <= capacity) {
+        memmove(g_frames, g_frames+frames, sizeof(Frame)*(capacity - frames));
+        memcpy(g_frames+(capacity-frames), bufferData, sizeof(Frame)*frames);
+    } else {
+        memcpy(g_frames, bufferData, sizeof(Frame)*capacity);
+        g_frames_count = capacity;
     }
 }
 
@@ -244,13 +315,17 @@ int main()
     InitAudioDevice();
     InitWindow(WIDTH, HEIGHT, "Play with sound");
     SetTargetFPS(FPS);
+    SetExitKey(KEY_ESCAPE);
 
     Music music = LoadMusicStream("resources/journey-dont-stop-believin-1981.mp3");
+    Font font = LoadFont("resources/DejaVuSans.ttf");
+    /* INFO:     > Sample rate:   44100 Hz */
+    /* INFO:     > Sample size:   32 bits */
+    /* INFO:     > Channels:      2 (Stereo) */
+    /* INFO:     > Total frames:  11052288 */
 
     char cwd[PATH_MAX];
-
-    const char* fileName = GetFileName("/home/chinhcom/programming/c/resources/journey-dont-stop-believin-1981.mp3");
-
+    const char* fileName = GetFileName("journey-dont-stop-believin-1981.mp3");
     if (getcwd(cwd, sizeof(cwd)) != NULL) {
         printf("The current path: %s\n", cwd);
     } else {
@@ -258,6 +333,8 @@ int main()
     }
 
     char* filePath = strcat(cwd, "/resources/");
+    printf("file_path: %s \n", filePath);
+    printf("file_name: %s \n", fileName);
     strcat(filePath, fileName);
 
     const char* outputFile = "metadata.txt";
@@ -265,28 +342,34 @@ int main()
     if (executeCommand(filePath, outputFile) == 0) {
         readMetadataFile(outputFile);
     }
+    AttachAudioStreamProcessor(music.stream, callback);
 
     while (!WindowShouldClose()) {
+        float delta_time = GetFrameTime();
+        global_time += delta_time;
+
         BeginDrawing();
         ClearBackground(BLACK);
+
+        DrawFPS(10, 10);
 
         if (!IsMusicValid(music)) {
             DrawText("Cannot playing music", 100, 100, 20, RED);
         } else {
             UpdateMusicStream(music);
+
             toggleMusic(&music);
             getInforGuide(&music);
             drawProgressBar(&music);
             handleProgressBarClick(&music, GetMousePosition());
-            drawMetadataText(lines, g_lineCount);
-        }
+            drawMetadataText(font, lines, g_lineCount);
+            handleSeekMusic(&music);
 
-        if (IsKeyPressed(KEY_F)) {
-            AttachAudioStreamProcessor(music.stream, AudioProcessEffectLPF);
+            drawWaveform(g_frames, g_frames_count);
         }
-
         EndDrawing();
     }
+    UnloadFont(font);
     UnloadMusicStream(music);
     CloseAudioDevice();
     CloseWindow();
