@@ -8,7 +8,7 @@
 #include <linux/limits.h>
 #include <stdint.h>
 #include <complex.h>
-#include <kissfft/kiss_fft.h>
+/* #include <kissfft/kiss_fft.h> */
 
 #include "metadata_reader.h"
 
@@ -28,6 +28,7 @@
 
 #define PROGRESS_BAR_WIDTH 800
 #define PROGRESS_BAR_HEIGHT 20
+#define BAR_WIDTH 20
 #define PROGRESS_BAR_Y 700
 #define PROGRESS_BAR_X (WIDTH - PROGRESS_BAR_WIDTH) / 2.0
 
@@ -47,8 +48,10 @@ Color headDotColor = { 255, 255, 255, 255 };
 TextLine lines[MAX_LINES];
 
 int g_lineCount = 0; 
+
 Frame g_frames[FRAME_BUFFER] = { 0 };
 size_t g_frames_count = 0;
+
 float global_time;
 float fft_in[FFT_SIZE];
 float fft_out[FFT_SIZE];
@@ -117,6 +120,7 @@ void drawProgressBar(Music *music)
     formatMusicTime(timePlayed, formattedTimePlayed, sizeof(formattedTimePlayed));
     formatMusicTime(timeLength, formattedTimeLength, sizeof(formattedTimeLength));
 
+    /* DrawRectangle(int posX, int posY, int width, int height, Color color); */
     DrawRectangle(PROGRESS_BAR_X, PROGRESS_BAR_Y, PROGRESS_BAR_WIDTH, PROGRESS_BAR_HEIGHT, LIGHTGRAY);
     DrawRectangle(PROGRESS_BAR_X, PROGRESS_BAR_Y, PROGRESS_BAR_WIDTH * progress, PROGRESS_BAR_HEIGHT, MAROON);
 
@@ -283,16 +287,20 @@ void drawWaveform(Frame *frames, size_t count)
     int h = GetRenderHeight();
     float cellWidth = (float)w/count; // normalize this 
 
+    int x = 0;
     for (size_t i = 0; i < count; i++) {
-        float t = g_frames[i].right;
-        /* float l = g_frames[i].left; */
+        float t = g_frames[i].left;
         // Trying to visualize that sample
         if (t > 0) {
             /* DrawRectangle(int posX, int posY, int width, int height, Color color); */
-            DrawRectangle(i*cellWidth, h/2.0 - h/2.0*t, 1, h/2.0*t, getRainbowColor());
+            /* DrawRectangle(i*cellWidth, h/2.0 - h/2.0*t, 1, h/2.0*t, getRainbowColor()); */
+            DrawRectangle(x, h/2.0 - h/2.0*t, BAR_WIDTH, h/2.0*t, getRainbowColor());
         } else {
-            DrawRectangle(i*cellWidth, h/2            , 1, h/2.0*t, getRainbowColor());
+            /* DrawRectangle(i*cellWidth, h/2            , 1, h/2.0*t, getRainbowColor()); */
+            /* DrawRectangle(x, 200, BAR_WIDTH,  h/2.0*t, getRainbowColor()); */
+            DrawRectangle(x, h/2.0, BAR_WIDTH, h/2.0*t, getRainbowColor());
         }
+        x += BAR_WIDTH + 1;
     }
 }
 
