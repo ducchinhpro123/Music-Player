@@ -379,37 +379,53 @@ void drawFFTSpectrum(complex float* fftData, int size) {
     
     int w = GetRenderWidth();
     int h = GetRenderHeight();
+    float y_offset = h * 0.2f;
     int barCount = 64;  
     float barWidth = (float)w/barCount;
 
+    // Compute FFT and populate fft_magnitudes[]
     computeFFTSpectrum();
     static float prevHeights[64] = {0};
     
-    // Process audio data directly from frames
-    for (int i = 0; i < FFT_SIZE && i < g_frames_count; i++) {
-        // Just use the audio samples directly - no complex FFT calculation
-        fft_in[i] = fabsf(g_frames[i].left); // Use absolute values
-    }
-    
-    // Simple visualization without trying to do complex FFT
+    // Simple visualization using FFT magnitude data
     for (int i = 0; i < barCount; i++) {
-        // Sample range of audio data for this bar
-        int lowBound = i * FFT_SIZE / barCount;
-        int hiBound = (i + 1) * FFT_SIZE / barCount;
-        if (hiBound > FFT_SIZE) hiBound = FFT_SIZE;
+        // Map each bar to a range in the frequency spectrum
+        // We only use the first half of FFT data (FFT_SIZE/2) due to symmetry
+        int lowBound = i * (FFT_SIZE/2) / barCount;
+        int hiBound = (i + 1) * (FFT_SIZE/2) / barCount;
+        if (hiBound > FFT_SIZE/2) hiBound = FFT_SIZE/2;
         
-        // Find max amplitude in this range
-        float max = 0.0f;
-        for (int j = lowBound; j < hiBound && j < FFT_SIZE; j++) {
-            if (fft_in[j] > max) max = fft_in[j];
+        // Find max magnitude in this frequency range
+        float max = -100.0f; // Start with a low value since FFT is in decibels
+        for (int j = lowBound; j < hiBound; j++) {
+            if (fft_magnitudes[j] > max) max = fft_magnitudes[j];
         }
         
-        // Amplify for better visualization - raylib audio data is typically normalized between -1.0 and 1.0
-        float barHeight = max * h * 1.1f; // Amplify by 5x
-
-        float riseSpeed = 0.35f;    // Faster response to volume increases
-        float fallSpeed = 0.08f;    // Slower decay for smoother falling motion
+        // Scale the magnitude for visualization - from dB to linear scale
+        max = (max + 80.0f) / 80.0f; // Normalize from typical range (-80dB to 0dB)
+        if (max < 0.0f) max = 0.0f;
+        if (max > 1.0f) max = 1.0f;
         
+        // Apply frequency-dependent weighting to balance the visualization
+        // Higher frequencies (higher i) get boosted, lower frequencies get attenuated
+        /* float frequencyWeight; */
+        /* if (i < barCount / 4) { */
+        /*     // Attenuate low frequencies (first quarter) */
+        /*     frequencyWeight = 0.6f + (0.4f * i / (barCount / 4.)); */
+        /* } else if (i > barCount * 3 / 4) { */
+        /*     // Boost high frequencies (last quarter) */
+        /*     frequencyWeight = 1.0f + 0.5f * (i - (barCount * 3. / 4)) / (barCount / 4); */
+        /* } else { */
+        /*     // Mid frequencies stay roughly the same */
+        /*     frequencyWeight = 1.0f; */
+        /* } */
+        
+        // Apply the weighting
+        /* max *= frequencyWeight; */
+        if (max > 1.0f) max = 1.0f;
+        
+        // Calculate bar height
+        float barHeight = max * h;
         
         // Apply smoothing with previous frame values
         float smoothFactor = 0.15f;
@@ -418,17 +434,19 @@ void drawFFTSpectrum(complex float* fftData, int size) {
         
         // Draw the bar
         Color barColor = getRainbowColor(i * 0.05f);
-        /* DrawRectangle(i * barWidth, h/2.0 - smoothedHeight/2, barWidth-2, smoothedHeight, barColor); */
-        /* DrawRectangle(int posX, int posY, int width, int height, Color color) */
         float x_pos = i * barWidth;
-        DrawRectangle(x_pos, h/2.0 - smoothedHeight, barWidth-2, smoothedHeight, barColor);
 
+        /* DrawRectangle(x_pos, h/2.0 - smoothedHeight + yOffset, barWidth-2, smoothedHeight, barColor); */
+        DrawRectangle(x_pos, h/2.0 - smoothedHeight * 0.3f + y_offset, barWidth-2, smoothedHeight * 0.3f, barColor);
+
+        // Draw the reflection
         Color reflectionColor = barColor;
         reflectionColor.a = 100; // Slightly transparent reflection
-        DrawRectangle(x_pos, h/2.0, barWidth-2, smoothedHeight - 40, reflectionColor);
+        DrawRectangle(x_pos, h/2.0 + y_offset, barWidth-2, smoothedHeight - smoothedHeight / 1.2, reflectionColor);
     }
 
-    DrawLine(0, h/2, w, h/2, ColorAlpha(WHITE, 0.6f));
+    // Draw the middle line
+    DrawLine(0, h/2.0 + y_offset, w, h/2 + y_offset, ColorAlpha(WHITE, 0.6f));
 }
 
 void computeFFT(float* input, complex float* output, int size)
@@ -518,32 +536,11 @@ int main()
 
     bool isLoaded = false;
 
-    /* Music music = LoadMusicStream("resources/journey-dont-stop-believin-1981.mp3"); */
     Font font = LoadFont("resources/DejaVuSans.ttf");
-    /* INFO:     > Sample rate:   44100 Hz */
-    /* INFO:     > Sample size:   32 bits */
-    /* INFO:     > Channels:      2 (Stereo) */
-    /* INFO:     > Total frames:  11052288 */
 
     char cwd[PATH_MAX];
-    const char* fileName = GetFileName("journey-dont-stop-believin-1981.mp3");
-    if (getcwd(cwd, sizeof(cwd)) != NULL) {
-        printf("The current path: %s\n", cwd);
-    } else {
-        printf("Cannot get the current path\n");
-    }
-
-    char* filePath = strcat(cwd, "/resources/");
-    printf("file_path: %s \n", filePath);
-    printf("file_name: %s \n", fileName);
-    strcat(filePath, fileName);
-
     const char* outputFile = "metadata.txt";
 
-    /* if (executeCommand(filePath, outputFile) == 0) { */
-    /*     readMetadataFile(outputFile); */
-    /* } */
-    /* AttachAudioStreamProcessor(music.stream, callback); */
 
     // Initialize FFT arrays
     for (int i = 0; i < FFT_SIZE; i++) {
@@ -560,6 +557,7 @@ int main()
         filePaths[i] = (char *)RL_CALLOC(MAX_FILEPATH_SIZE, 1);
     }
     Music music = { 0 };
+    bool loaded_file = true;
 
     while (!WindowShouldClose()) {
         if (IsFileDropped()) {
@@ -582,7 +580,7 @@ int main()
                     music = LoadMusicStream(file_path);
                     AttachAudioStreamProcessor(music.stream, callback);
                 } else {
-                    DrawText("The extension of the file either non-support or not an mp3 file", 100, 100, 20, RED);
+                    loaded_file = false;
                 }
             }
             UnloadDroppedFiles(droppedFiles);
@@ -603,10 +601,9 @@ int main()
 
         DrawFPS(10, 10);
 
-        if (!IsMusicValid(music)) {
-            DrawText("Cannot playing music", 100, 100, 20, RED);
+        if (!IsMusicValid(music) && !loaded_file) {
+            DrawText("Cannot playing music", 100, 100, 60, RED);
         } else {
-
             if (filePathCounter > 0) {
                 UpdateMusicStream(music);
                 getInforGuide(&music);
@@ -617,7 +614,6 @@ int main()
                 handleSeekMusic(&music);
                 drawWaveform(g_frames, g_frames_count);
             }
-
         }
         EndDrawing();
     }
