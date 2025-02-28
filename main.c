@@ -266,6 +266,8 @@ int executeCommand(const char *inputFile, const char* outputFile)
 
     snprintf(command, sizeof(command), "ffmpeg -i '%s' -f ffmetadata %s", inputFile, outputFile);
 
+
+    /* Execute the given line as a shell command. */
     int result = system(command);
     if (result == 0) {
         printf("Exetracted metadata successfully\n");
@@ -564,20 +566,24 @@ int main()
             FilePathList droppedFiles = LoadDroppedFiles();
             if (droppedFiles.count > 0) {
                 const char *file_path = droppedFiles.paths[0];
+                printf("555: File dropped: %s\n", file_path);
                 if (isAudioFile(file_path)) {
-                    printf("File dropped: %s\n", file_path);
                     strncpy(filePaths[filePathCounter], file_path, 511);
                     filePaths[filePathCounter][511] = '\0';  // Ensure null-terminated
                     filePathCounter++;
+                    printf("THERE\n");
 
                     if (IsMusicReady(music)) {
-                        StopMusicStream(music);
+                        /* StopMusicStream(music); */
                         UnloadMusicStream(music);
+                        /* PlayMusicStream(music); */
                     }
                     if (executeCommand(file_path, outputFile) == 0) {
                         readMetadataFile(outputFile);
                     }
                     music = LoadMusicStream(file_path);
+
+                    PlayMusicStream(music);
                     AttachAudioStreamProcessor(music.stream, callback);
                 } else {
                     loaded_file = false;
