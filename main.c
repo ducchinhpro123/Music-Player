@@ -15,7 +15,7 @@
 
 #include "metadata_reader.h"
 
-#define WIDTH 1200
+#define WIDTH 1000
 #define HEIGHT 800
 #define FPS 60
 #define FRAME_BUFFER 4024
@@ -398,7 +398,7 @@ void drawFFTSpectrum(complex float* fftData, int size) {
         if (hiBound > FFT_SIZE/2) hiBound = FFT_SIZE/2;
         
         // Find max magnitude in this frequency range
-        float max = -100.0f; // Start with a low value since FFT is in decibels
+        float max = -200.0f; // Start with a low value since FFT is in decibels
         for (int j = lowBound; j < hiBound; j++) {
             if (fft_magnitudes[j] > max) max = fft_magnitudes[j];
         }
@@ -407,20 +407,6 @@ void drawFFTSpectrum(complex float* fftData, int size) {
         max = (max + 80.0f) / 80.0f; // Normalize from typical range (-80dB to 0dB)
         if (max < 0.0f) max = 0.0f;
         if (max > 1.0f) max = 1.0f;
-        
-        // Apply frequency-dependent weighting to balance the visualization
-        // Higher frequencies (higher i) get boosted, lower frequencies get attenuated
-        /* float frequencyWeight; */
-        /* if (i < barCount / 4) { */
-        /*     // Attenuate low frequencies (first quarter) */
-        /*     frequencyWeight = 0.6f + (0.4f * i / (barCount / 4.)); */
-        /* } else if (i > barCount * 3 / 4) { */
-        /*     // Boost high frequencies (last quarter) */
-        /*     frequencyWeight = 1.0f + 0.5f * (i - (barCount * 3. / 4)) / (barCount / 4); */
-        /* } else { */
-        /*     // Mid frequencies stay roughly the same */
-        /*     frequencyWeight = 1.0f; */
-        /* } */
         
         // Apply the weighting
         /* max *= frequencyWeight; */
@@ -466,26 +452,6 @@ void computeFFT(float* input, complex float* output, int size)
         // Calculate magnitude
         output[k] = 10.0f * log10f(sqrtf(real*real + imag*imag) + 1e-6f);
     }
-}
-
-void drawWaveform(Frame *frames, size_t count)
-{
-    if (count == 0) return;
-
-    int w = GetRenderWidth();
-    int h = GetRenderHeight();
-
-    for (int i = 0; i < FFT_SIZE && i < count; i++) {
-        fft_in[i] = frames[i].left;
-    }
-    
-    computeFFT(fft_in, fft_out, FFT_SIZE);
-    float cellWidth = (float)w/count; // normalize this 
-                                      
-    float xStep = (float)w / (count / 2.0);
-    float x = 0;
-
-    drawFFTSpectrum(fft_out, FFT_SIZE);
 }
 
 // I copy from tsoding
@@ -582,7 +548,6 @@ int main()
                         readMetadataFile(outputFile);
                     }
                     music = LoadMusicStream(file_path);
-
                     PlayMusicStream(music);
                     AttachAudioStreamProcessor(music.stream, callback);
                 } else {
@@ -598,8 +563,8 @@ int main()
         BeginDrawing();
         ClearBackground(BLACK);
         if (filePathCounter == 0) {
-            int widthText = MeasureText("Drop your files to this window!", 60);
-            DrawText("Drop your files to this window!", WIDTH - widthText - 60, HEIGHT/2, 60, DARKGRAY);
+            int widthText = MeasureText("Drop your files to this window!", 40);
+            DrawText("Drop your files to this window!", WIDTH - widthText - 190, HEIGHT/2, 40, DARKGRAY);
         }
         else {
             DrawText("Drop new files...", 100, 110 + 40*filePathCounter, 20, DARKGRAY);
@@ -618,7 +583,9 @@ int main()
                 handleProgressBarClick(&music, GetMousePosition());
                 drawMetadataText(font, lines, g_lineCount);
                 handleSeekMusic(&music);
-                drawWaveform(g_frames, g_frames_count);
+                /* drawWaveform(g_frames, g_frames_count); */
+
+                drawFFTSpectrum(fft_out, FFT_SIZE);
             }
         }
         EndDrawing();
