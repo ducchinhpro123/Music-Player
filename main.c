@@ -409,20 +409,20 @@ void drawFFTSpectrum(complex float* fftData, int size) {
         if (max > 1.0f) max = 1.0f;
         
         // Apply the weighting
-        float frequencyWeight;
-        if (i < barCount / 4) {
-            // Attenuate low frequencies (first quarter)
-            frequencyWeight = 0.5f + (0.5f * i / (barCount / 4.0f));
-        } else if (i > barCount * 3 / 4) {
-            // Boost high frequencies (last quarter)
-            frequencyWeight = 1.0f + 1.0f * (i - (barCount * 3.0f / 4.0f)) / (barCount / 4.0f);
-        } else {
-            // Mid frequencies stay roughly the same
-            frequencyWeight = 1.0f;
-        }
+        /* float frequencyWeight; */
+        /* if (i < barCount / 4) { */
+        /*     // Attenuate low frequencies (first quarter) */
+        /*     frequencyWeight = 0.5f + (0.5f * i / (barCount / 4.0f)); */
+        /* } else if (i > barCount * 3 / 4) { */
+        /*     // Boost high frequencies (last quarter) */
+        /*     frequencyWeight = 1.0f + 1.0f * (i - (barCount * 3.0f / 4.0f)) / (barCount / 4.0f); */
+        /* } else { */
+        /*     // Mid frequencies stay roughly the same */
+        /*     frequencyWeight = 1.0f; */
+        /* } */
         
         // Apply the weighting
-        max *= frequencyWeight;
+        /* max *= frequencyWeight; */
         if (max > 1.0f) max = 1.0f;
         
         // Calculate bar height
